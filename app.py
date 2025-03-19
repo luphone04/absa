@@ -135,6 +135,7 @@ def compute_dashboard_metrics(df):
     return sentiment_counts, sentiment_percentages, top_aspects
 
 def color_sentiment(sentiment):
+    """Return colored HTML for sentiment text."""
     s_lower = sentiment.lower()
     if s_lower == "positive":
         return f"<span style='color:green;font-weight:bold'>{sentiment.capitalize()}</span>"
@@ -179,6 +180,7 @@ def plot_aspect_bar(top_aspects):
     st.pyplot(fig)
 
 def get_all_aspects_reviews(df):
+    """Build a dictionary of aspect -> list of (review_text, sentiment)."""
     aspect_reviews_map = {}
     for _, row in df.iterrows():
         pairs = parse_extracted_aspects(row["extracted_aspects"])
@@ -190,24 +192,25 @@ def get_all_aspects_reviews(df):
     return aspect_reviews_map
 
 # ----------------------------------
-# Main App Layout with Multi-Page Dashboard
+# Streamlit App Layout
 # ----------------------------------
 st.set_page_config(page_title="ABSA Demo", layout="wide")
 st.title("Aspect-Based Sentiment Analysis Demo")
 
-# Main task selection: Dashboard vs Live Inference.
+# Main task selection: Dashboard vs Live Inference
 main_task = st.sidebar.selectbox("Select Task", ["Dashboard", "Live Inference"])
 
 if main_task == "Dashboard":
     st.header("Dashboard")
     st.write("Select a profile to view aspect-sentiment insights from reviews.")
-    
+
     profile = st.selectbox("Select Profile", ["Laptop", "Restaurant", "TripAdvisor"])
     df_profile = load_reviews(profile)
     
     if df_profile.empty:
         st.error("No data available to display.")
     else:
+        # For 'Laptop'/'Restaurant', allow mock inference on the data
         if profile.lower() in ["laptop", "restaurant"]:
             if st.button("Run Inference on Reviews"):
                 st.write("Running aspect extraction inference...")
@@ -218,39 +221,57 @@ if main_task == "Dashboard":
         
         if "extracted_aspects" in df_profile.columns:
             sentiment_counts, sentiment_percentages, top_aspects = compute_dashboard_metrics(df_profile)
-            dashboard_page = st.sidebar.selectbox("Select Dashboard Page", 
-                                                  ["Sentiment Distribution", "Top Aspects", "Reviews by Aspect"])
+            
+            # Choose which page to show
+            dashboard_page = st.sidebar.selectbox(
+                "Select Dashboard Page", 
+                ["Sentiment Distribution", "Top Aspects", "Reviews by Aspect"]
+            )
+            
             if dashboard_page == "Sentiment Distribution":
                 st.write("## Overall Sentiment Distribution")
                 plot_sentiment_donut(sentiment_counts, sentiment_percentages)
+            
             elif dashboard_page == "Top Aspects":
                 st.write("## Most Frequent Mentioned Aspects")
                 plot_aspect_bar(top_aspects)
+            
             elif dashboard_page == "Reviews by Aspect":
                 st.write("## View Reviews by Aspect")
                 aspect_reviews_map = get_all_aspects_reviews(df_profile)
                 if aspect_reviews_map:
                     all_aspects = sorted(aspect_reviews_map.keys())
                     selected_aspect = st.selectbox("Choose an aspect", options=all_aspects)
+                    
+                    # Filter options
                     polarity_options = ["positive", "negative", "neutral"]
-                    selected_polarities = st.multiselect("Filter by sentiment polarity", 
-                                                         options=polarity_options,
-                                                         default=polarity_options)
+                    selected_polarities = st.multiselect(
+                        "Filter by sentiment polarity", 
+                        options=polarity_options,
+                        default=polarity_options
+                    )
                     keyword_filter = st.text_input("Filter by keyword (optional)")
+                    
                     if selected_aspect:
                         reviews_for_aspect = aspect_reviews_map[selected_aspect]
+                        
+                        # Apply polarity filter
                         if selected_polarities:
                             reviews_for_aspect = [
                                 (review, sentiment) for review, sentiment in reviews_for_aspect
                                 if sentiment.lower() in selected_polarities
                             ]
+                        
+                        # Apply keyword filter
                         if keyword_filter:
                             keyword_filter_lower = keyword_filter.lower()
                             reviews_for_aspect = [
                                 (review, sentiment) for review, sentiment in reviews_for_aspect
                                 if keyword_filter_lower in review.lower()
                             ]
+                        
                         if reviews_for_aspect:
+                            # Show sentiment distribution for these filtered reviews
                             sentiments = [s.lower() for _, s in reviews_for_aspect]
                             sentiment_counts_aspect = Counter(sentiments)
                             total_reviews = sum(sentiment_counts_aspect.values())
@@ -260,25 +281,22 @@ if main_task == "Dashboard":
                             
                             st.markdown(f"**Sentiment Distribution for '{selected_aspect}' Reviews:**")
                             st.markdown(
-                                f"Positive: {pos_percent:.1f}% | Negative: {neg_percent:.1f}% | Neutral: {neu_percent:.1f}%",
+                                f"Positive: {pos_percent:.1f}% | Negative: {neg_percent:.1f}% | Neutral: {neu_percent:.1f}%"
                             )
                             
                             st.write(f"**Reviews mentioning '{selected_aspect}' with selected filters:**")
                             for review_text, sentiment in reviews_for_aspect:
-                                # Minimal HTML is used for coloring.
-                                if sentiment.lower() == "positive":
-                                    sentiment_html = "<span style='color:green;font-weight:bold'>Positive</span>"
-                                elif sentiment.lower() == "negative":
-                                    sentiment_html = "<span style='color:red;font-weight:bold'>Negative</span>"
-                                else:
-                                    sentiment_html = "<span style='color:orange;font-weight:bold'>Neutral</span>"
-                                st.markdown(f"Extracted/Selected Aspect: {selected_aspect}", unsafe_allow_html=True)
+                                sentiment_html = color_sentiment(sentiment)
+                                # Display the review text, aspect, and colored sentiment
+                                st.write("Review:", review_text)
+                                st.markdown(f"Extracted/Selected Aspect: **{selected_aspect}**", unsafe_allow_html=True)
                                 st.markdown(f"Predicted Sentiment: {sentiment_html}", unsafe_allow_html=True)
                                 st.write("----------------------")
                         else:
                             st.write("No reviews found for this aspect with the selected filters.")
                 else:
                     st.write("No aspect data available.")
+            
             st.download_button(
                 "Download Results as CSV",
                 df_profile.to_csv(index=False),
@@ -292,16 +310,14 @@ elif main_task == "Live Inference":
     st.header("Live Inference")
     st.write("Enter a review sentence and optionally an aspect to get a predicted sentiment.")
     
-    # Domain selection for Live Inference.
     domain = st.radio("Select Domain", options=["Laptop", "Restaurant"], index=0)
-    
     review_input = st.text_area("Review Text", placeholder="Enter your review here...", height=100)
     aspect_input = st.text_input("Aspect (Optional)", placeholder="Enter the aspect (e.g., battery life)")
     
     if st.button("Predict Sentiment"):
         if review_input:
             with st.spinner("Running inference..."):
-                # Choose endpoints based on selected domain.
+                # Choose endpoints based on selected domain
                 if domain == "Restaurant":
                     extraction_url = restaurant_aspect_extraction_url
                     sentiment_url = restaurant_sentiment_classification_url
@@ -309,7 +325,7 @@ elif main_task == "Live Inference":
                     extraction_url = laptop_aspect_extraction_url
                     sentiment_url = laptop_sentiment_classification_url
                 
-                # If an aspect is provided, use it; otherwise, extract aspects.
+                # If user provided aspect, use it; otherwise, extract aspects
                 if aspect_input.strip():
                     aspects_to_process = [aspect_input.strip()]
                 else:
@@ -319,16 +335,12 @@ elif main_task == "Live Inference":
                     else:
                         st.error("No aspect extracted. Please try again.")
                         aspects_to_process = []
+                
                 if aspects_to_process:
                     st.write("Review:", review_input)
                     for aspect in aspects_to_process:
                         sentiment = call_sentiment_classification_custom(review_input, aspect, sentiment_url)
-                        if sentiment.lower() == "positive":
-                            sentiment_html = "<span style='color:green;font-weight:bold'>Positive</span>"
-                        elif sentiment.lower() == "negative":
-                            sentiment_html = "<span style='color:red;font-weight:bold'>Negative</span>"
-                        else:
-                            sentiment_html = "<span style='color:orange;font-weight:bold'>Neutral</span>"
+                        sentiment_html = color_sentiment(sentiment)
                         st.markdown(f"**Extracted/Selected Aspect:** {aspect}", unsafe_allow_html=True)
                         st.markdown(f"**Predicted Sentiment:** {sentiment_html}", unsafe_allow_html=True)
                         st.write("----------------------")
