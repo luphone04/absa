@@ -86,7 +86,7 @@ def load_reviews(profile):
         return pd.DataFrame(data)
     elif profile.lower() == "tripadvisor":
         try:
-            df = pd.read_csv("absa/tripadvisor_reviews_sentiment.csv")
+            df = pd.read_csv("tripadvisor_reviews_sentiment.csv")
             if "review_text" not in df.columns:
                 if "raw_text" in df.columns:
                     df.rename(columns={"raw_text": "review_text"}, inplace=True)
